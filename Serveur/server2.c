@@ -1,10 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <string.h>
-
+#include <errno.h>
+#include <time.h>
 #include "server2.h"
 #include "client2.h"
+#include "awale.h" // Include the header file for Awale functions
+#include <sys/select.h>
+
+
 
 static void init(void)
 {
@@ -131,70 +135,6 @@ static void app(void)
    end_connection(sock);
 }
 
-static void send_online_clients_list(Client *clients, int actual, SOCKET sock)
-{
-   char list[BUF_SIZE] = "Online users:\n";
-   for (int i = 0; i < actual; i++)
-   {
-      char client_info[BUF_SIZE];
-      snprintf(client_info, BUF_SIZE, "%.50s (%s)\n", clients[i].name, get_status_string(clients[i].status));
-      strncat(list, client_info, BUF_SIZE - strlen(list) - 1);
-   }
-   write_client(sock, list);
-}
-
-const char* get_status_string(ClientStatus status)
-{
-   switch (status)
-   {
-   case AVAILABLE:
-      return "AVAILABLE";
-   case IN_GAME:
-      return "IN_GAME";
-   case SPECTATING:
-      return "SPECTATING";
-   case BUSY:
-      return "BUSY";
-   default:
-      return "UNKNOWN";
-   }
-}
-
-static void clear_clients(Client *clients, int actual)
-{
-   for (int i = 0; i < actual; i++)
-   {
-      closesocket(clients[i].sock);
-   }
-}
-
-static void remove_client(Client *clients, int to_remove, int *actual)
-{
-   memmove(clients + to_remove, clients + to_remove + 1, (*actual - to_remove - 1) * sizeof(Client));
-   (*actual)--;
-}
-
-static void send_message_to_all_clients(Client *clients, Client sender, int actual, const char *buffer, char from_server)
-{
-   char message[BUF_SIZE];
-   message[0] = 0;
-   for (int i = 0; i < actual; i++)
-   {
-      if (sender.sock != clients[i].sock)
-      {
-         if (from_server == 0)
-         {
-            snprintf(message, BUF_SIZE, "%.50s: %s", sender.name, buffer);
-         }
-         else
-         {
-            snprintf(message, BUF_SIZE, "%s", buffer);
-         }
-         write_client(clients[i].sock, message);
-      }
-   }
-}
-
 static int init_connection(void)
 {
    SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -224,15 +164,21 @@ static int init_connection(void)
 
    return sock;
 }
+
+static void end_connection(int sock)
+{
+   closesocket(sock);
+}
+
 static int read_client(SOCKET sock, char *buffer)
 {
-   int n = 0;
-   if ((n = recv(sock, buffer, BUF_SIZE - 1, 0)) < 0)
+   int n = recv(sock, buffer, BUF_SIZE - 1, 0);
+   if (n < 0)
    {
       perror("recv()");
-      n = 0;
+      exit(errno);
    }
-   buffer[n] = '\0'; // Null-terminate
+   buffer[n] = '\0';
    return n;
 }
 
@@ -245,9 +191,40 @@ static void write_client(SOCKET sock, const char *buffer)
    }
 }
 
-static void end_connection(SOCKET sock)
+static void send_message_to_all_clients(Client *clients, Client sender, int actual, const char *buffer, char from_server)
 {
-   closesocket(sock);
+   char message[BUF_SIZE];
+   message[0] = 0;
+   for (int i = 0; i < actual; i++)
+   {
+      if (sender.sock != clients[i].sock)
+      {
+         if (from_server == 0)
+         {
+            snprintf(message, BUF_SIZE, "%.50s: %s", sender.name, buffer);
+         }
+         else
+         {
+            snprintf(message, BUF_SIZE, "%s", buffer);
+         }
+         write_client(clients[i].sock, message);
+      }
+   }
+}
+
+static void remove_client(Client *clients, int to_remove, int *actual)
+{
+   closesocket(clients[to_remove].sock);
+   memmove(clients + to_remove, clients + to_remove + 1, (*actual - to_remove - 1) * sizeof(Client));
+   (*actual)--;
+}
+
+static void clear_clients(Client *clients, int actual)
+{
+   for (int i = 0; i < actual; i++)
+   {
+      closesocket(clients[i].sock);
+   }
 }
 
 void handle_challenge(const char *target_name, Client *challenger, Client *clients, int actual) {
@@ -262,8 +239,7 @@ void handle_challenge(const char *target_name, Client *challenger, Client *clien
 
             // Notify the challenged client
             char message[BUF_SIZE];
-            int max_name_length = BUF_SIZE - strlen("You have been challenged by .\n") - 1;
-            snprintf(message, BUF_SIZE, "You have been challenged by %.*s.\n", max_name_length, challenger->name);
+            snprintf(message, BUF_SIZE, "You have been challenged by %.996s.\n", challenger->name);
             write_client(clients[i].sock, message);
 
             // Notify the challenger
@@ -278,7 +254,6 @@ void handle_challenge(const char *target_name, Client *challenger, Client *clien
     }
 }
 
-// Function to handle challenge acceptance or denial
 void handle_challenge_response(Client *clients, int actual, int i, const char *buffer) {
     if (strncmp(buffer, "ACCEPT", 6) == 0) {
         // Challenge acceptance
@@ -294,9 +269,8 @@ void handle_challenge_response(Client *clients, int actual, int i, const char *b
                 write_client(clients[i].sock, "Challenge accepted.\n");
                 write_client(clients[j].sock, "Challenge accepted.\n");
 
-                // Update client statuses
-                clients[i].status = IN_GAME;
-                clients[j].status = IN_GAME;
+                // Start the game
+                start_game(&clients[j], &clients[i]);
 
                 break;
             }
@@ -329,10 +303,118 @@ void handle_challenge_response(Client *clients, int actual, int i, const char *b
     }
 }
 
-int main(void)
-{
-   init();
-   app();
-   end();
-   return 0;
+void start_game(Client *player1, Client *player2) {
+    // Initialize the game
+    Game game;
+    initialiser_plateau(&game.plateau);
+
+    // Randomly decide who is player 1 and who is player 2
+    srand(time(NULL));
+    if (rand() % 2 == 0) {
+        game.player1 = player1;
+        game.player2 = player2;
+    } else {
+        game.player1 = player2;
+        game.player2 = player1;
+    }
+
+    game.current_player = 1;
+
+    // Notify players of their roles
+    write_client(game.player1->sock, "You are Player 1.\n");
+    write_client(game.player2->sock, "You are Player 2.\n");
+
+    // Show the initial board to both players
+    char board_state[BUF_SIZE];
+    get_board_state(&game.plateau, board_state, BUF_SIZE);
+    write_client(game.player1->sock, board_state);
+    write_client(game.player2->sock, board_state);
+
+    // Start the game loop
+    while (1) {
+        char buffer[BUF_SIZE];
+        int case_selectionnee;
+
+        // Get the move from the current player
+        if (game.current_player == 1) {
+            write_client(game.player1->sock, "Your turn. Select a case: ");
+            read_client(game.player1->sock, buffer);
+            case_selectionnee = atoi(buffer);
+            handle_move(&game, game.player1, case_selectionnee);
+        } else {
+            write_client(game.player2->sock, "Your turn. Select a case: ");
+            read_client(game.player2->sock, buffer);
+            case_selectionnee = atoi(buffer);
+            handle_move(&game, game.player2, case_selectionnee);
+        }
+
+        // Switch player
+        game.current_player = (game.current_player == 1) ? 2 : 1;
+
+        // Check if the game is over
+        if (est_fin_de_partie(&game.plateau)) {
+            char message[BUF_SIZE];
+            snprintf(message, BUF_SIZE, "Game over. Score - Player 1: %d, Player 2: %d\n", game.plateau.score_joueur1, game.plateau.score_joueur2);
+            write_client(game.player1->sock, message);
+            write_client(game.player2->sock, message);
+
+            // Set players' status back to available
+            game.player1->status = AVAILABLE;
+            game.player2->status = AVAILABLE;
+
+            break;
+        }
+    }
+}
+
+void handle_move(Game *game, Client *player, int case_selectionnee) {
+    // Show the board state before the move
+    char board_state[BUF_SIZE];
+    get_board_state(&game->plateau, board_state, BUF_SIZE);
+    write_client(game->player1->sock, board_state);
+    write_client(game->player2->sock, board_state);
+
+    int result = jouer_coup(&game->plateau, game->current_player, case_selectionnee);
+    if (result == -1) {
+        write_client(player->sock, "Illegal move. Try again.\n");
+    } else {
+        // Show the board state after the move
+        get_board_state(&game->plateau, board_state, BUF_SIZE);
+        write_client(game->player1->sock, board_state);
+        write_client(game->player2->sock, board_state);
+    }
+}
+
+static void send_online_clients_list(Client *clients, int actual, SOCKET sock) {
+    char list[BUF_SIZE] = "Online users:\n";
+    for (int i = 0; i < actual; i++) {
+        char client_info[BUF_SIZE];
+        snprintf(client_info, BUF_SIZE, "%.50s (%s)\n", clients[i].name, get_status_string(clients[i].status));
+        strncat(list, client_info, BUF_SIZE - strlen(list) - 1);
+    }
+    write_client(sock, list);
+}
+
+const char* get_status_string(ClientStatus status) {
+    switch (status) {
+        case AVAILABLE:
+            return "Available";
+        case IN_GAME:
+            return "In Game";
+        case CHALLENGED:
+            return "Challenged";
+        case SPECTATING:
+            return "Spectating";
+        case BUSY:
+            return "Busy";
+        default:
+            return "Unknown";
+    }
+}
+
+int main(void) {
+    init();
+    app();
+    end();
+    return 0;
 }

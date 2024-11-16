@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h> // Include the necessary header file for strlen
 #include "awale.h"
 
 // Initialisation du plateau
@@ -99,4 +100,17 @@ int compter_graines(const PlateauAwale *plateau, int joueur) {
         total += plateau->cases[i];
     }
     return total;
+}
+
+// Get the board state as a string
+void get_board_state(const PlateauAwale *plateau, char *buffer, size_t buffer_size) {
+    snprintf(buffer, buffer_size, "Joueur 2: ");
+    for (int i = 11; i >= 6; i--) {
+        snprintf(buffer + strlen(buffer), buffer_size - strlen(buffer), "[%d] ", plateau->cases[i]);
+    }
+    snprintf(buffer + strlen(buffer), buffer_size - strlen(buffer), "\nJoueur 1: ");
+    for (int i = 0; i < 6; i++) {
+        snprintf(buffer + strlen(buffer), buffer_size - strlen(buffer), "[%d] ", plateau->cases[i]);
+    }
+    snprintf(buffer + strlen(buffer), buffer_size - strlen(buffer), "\nScore - Joueur 1: %d, Joueur 2: %d\n", plateau->score_joueur1, plateau->score_joueur2);
 }
