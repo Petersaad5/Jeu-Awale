@@ -1,15 +1,15 @@
-#ifndef SERVER_H
-#define SERVER_H
+#ifndef SERVER2_H
+#define SERVER2_H
 
 #ifdef WIN32
 #include <winsock2.h>
-#elif defined (linux)
+#elif defined(linux)
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <unistd.h> /* close */
-#include <netdb.h> /* gethostbyname */
+#include <unistd.h>
+#include <netdb.h>
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
 #define closesocket(s) close(s)
@@ -18,7 +18,7 @@ typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
 typedef struct in_addr IN_ADDR;
 #else
-#error not defined for this platform
+#error Platform not supported
 #endif
 
 #define CRLF "\r\n"
@@ -28,6 +28,7 @@ typedef struct in_addr IN_ADDR;
 
 #include "client2.h"
 
+// Function declarations
 static void init(void);
 static void end(void);
 static void app(void);
@@ -39,6 +40,7 @@ static void send_message_to_all_clients(Client *clients, Client client, int actu
 static void remove_client(Client *clients, int to_remove, int *actual);
 static void clear_clients(Client *clients, int actual);
 static void send_online_clients_list(Client *clients, int actual, SOCKET sock);
-static void handle_challenge(Client *clients, int actual, Client challenger, const char *opponent_name);
+void update_client_status(Client *client, const char *status);  
+const char* get_status_string(ClientStatus status); // Function to get the status as a string
 
-#endif /* guard */
+#endif /* SERVER2_H */
