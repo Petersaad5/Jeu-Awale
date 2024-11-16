@@ -39,8 +39,10 @@ static void write_client(SOCKET sock, const char *buffer);
 static void send_message_to_all_clients(Client *clients, Client client, int actual, const char *buffer, char from_server);
 static void remove_client(Client *clients, int to_remove, int *actual);
 static void clear_clients(Client *clients, int actual);
+void handle_challenge(const char *target_name, Client *challenger, Client *clients, int actual);
 static void send_online_clients_list(Client *clients, int actual, SOCKET sock);
 void update_client_status(Client *client, const char *status);  
 const char* get_status_string(ClientStatus status); // Function to get the status as a string
+void handle_challenge_response(Client *clients, int actual, int i, const char *buffer);
 
 #endif /* SERVER2_H */

@@ -108,13 +108,18 @@ static void app(void)
                {
                   send_online_clients_list(clients, actual, client.sock);
                }
-               else if (strncmp(buffer, "STATUS:", 7) == 0)
+               else if (strncmp(buffer, "CHALLENGE:", 10) == 0)
                {
-                  update_client_status(&clients[i], buffer + 7);
+                  // Challenge handling
+                  char opponent_name[BUF_SIZE];
+                  strncpy(opponent_name, buffer + 10, BUF_SIZE - 10); // Correct the offset to start after "CHALLENGE:"
+                  opponent_name[BUF_SIZE - 10] = '\0'; // Ensure null-termination
+
+                  handle_challenge(opponent_name, &clients[i], clients, actual);
                }
                else
                {
-                  send_message_to_all_clients(clients, client, actual, buffer, 0);
+                  handle_challenge_response(clients, actual, i, buffer);
                }
                break;
             }
@@ -137,6 +142,7 @@ static void send_online_clients_list(Client *clients, int actual, SOCKET sock)
    }
    write_client(sock, list);
 }
+
 const char* get_status_string(ClientStatus status)
 {
    switch (status)
@@ -152,36 +158,6 @@ const char* get_status_string(ClientStatus status)
    default:
       return "UNKNOWN";
    }
-}
-
-
-void update_client_status(Client *client, const char *status)
-{
-   if (strncmp(status, "AVAILABLE", 9) == 0)
-   {
-      client->status = AVAILABLE;
-   }
-   else if (strncmp(status, "IN_GAME", 7) == 0)
-   {
-      client->status = IN_GAME;
-   }
-   else if (strncmp(status, "SPECTATING", 10) == 0)
-   {
-      client->status = SPECTATING;
-   }
-   else if (strncmp(status, "BUSY", 4) == 0)
-   {
-      client->status = BUSY;
-   }
-   else
-   {
-      write_client(client->sock, "Invalid status. Valid statuses: AVAILABLE, IN_GAME, SPECTATING, BUSY.\n");
-      return;
-   }
-
-   char response[BUF_SIZE];
-   snprintf(response, BUF_SIZE, "Status updated to %s.\n", get_status_string(client->status));
-   write_client(client->sock, response);
 }
 
 static void clear_clients(Client *clients, int actual)
@@ -234,13 +210,13 @@ static int init_connection(void)
    sin.sin_port = htons(PORT);
    sin.sin_family = AF_INET;
 
-   if (bind(sock, (SOCKADDR *)&sin, sizeof sin) == SOCKET_ERROR)
+   if (bind(sock, (SOCKADDR *)&sin, sizeof(sin)) == SOCKET_ERROR)
    {
       perror("bind()");
       exit(errno);
    }
 
-   if (listen(sock, MAX_CLIENTS) == SOCKET_ERROR)
+   if (listen(sock, 10) == SOCKET_ERROR)
    {
       perror("listen()");
       exit(errno);
@@ -248,12 +224,6 @@ static int init_connection(void)
 
    return sock;
 }
-
-static void end_connection(int sock)
-{
-   closesocket(sock);
-}
-
 static int read_client(SOCKET sock, char *buffer)
 {
    int n = 0;
@@ -275,10 +245,94 @@ static void write_client(SOCKET sock, const char *buffer)
    }
 }
 
-int main(int argc, char **argv)
+static void end_connection(SOCKET sock)
+{
+   closesocket(sock);
+}
+
+void handle_challenge(const char *target_name, Client *challenger, Client *clients, int actual) {
+    int found = 0;
+    for (int i = 0; i < actual; i++) {
+        if (strcmp(clients[i].name, target_name) == 0) {
+            found = 1;
+
+            // Store the challenger's name in the challenged client's structure
+            clients[i].is_challenged = 1;
+            strncpy(clients[i].challenger, challenger->name, BUF_SIZE);
+
+            // Notify the challenged client
+            char message[BUF_SIZE];
+            int max_name_length = BUF_SIZE - strlen("You have been challenged by .\n") - 1;
+            snprintf(message, BUF_SIZE, "You have been challenged by %.*s.\n", max_name_length, challenger->name);
+            write_client(clients[i].sock, message);
+
+            // Notify the challenger
+            write_client(challenger->sock, "Challenge sent.\n");
+
+            break;
+        }
+    }
+
+    if (!found) {
+        write_client(challenger->sock, "Target not found.\n");
+    }
+}
+
+// Function to handle challenge acceptance or denial
+void handle_challenge_response(Client *clients, int actual, int i, const char *buffer) {
+    if (strncmp(buffer, "ACCEPT", 6) == 0) {
+        // Challenge acceptance
+        char challenger_name[BUF_SIZE];
+        strncpy(challenger_name, clients[i].challenger, BUF_SIZE);
+
+        int found = 0;
+        for (int j = 0; j < actual; j++) {
+            if (strcmp(clients[j].name, challenger_name) == 0) {
+                found = 1;
+
+                // Notify both players that the challenge is accepted
+                write_client(clients[i].sock, "Challenge accepted.\n");
+                write_client(clients[j].sock, "Challenge accepted.\n");
+
+                // Update client statuses
+                clients[i].status = IN_GAME;
+                clients[j].status = IN_GAME;
+
+                break;
+            }
+        }
+
+        if (!found) {
+            write_client(clients[i].sock, "Challenger not found.\n");
+        }
+    } else if (strncmp(buffer, "DENY", 4) == 0) {
+        // Challenge denial
+        char challenger_name[BUF_SIZE];
+        strncpy(challenger_name, clients[i].challenger, BUF_SIZE);
+
+        int found = 0;
+        for (int j = 0; j < actual; j++) {
+            if (strcmp(clients[j].name, challenger_name) == 0) {
+                found = 1;
+
+                // Notify both players that the challenge is denied
+                write_client(clients[i].sock, "Challenge denied.\n");
+                write_client(clients[j].sock, "Challenge denied.\n");
+
+                break;
+            }
+        }
+
+        if (!found) {
+            write_client(clients[i].sock, "Challenger not found.\n");
+        }
+    }
+}
+
+int main(void)
 {
    init();
    app();
    end();
-   return EXIT_SUCCESS;
+   return 0;
 }
