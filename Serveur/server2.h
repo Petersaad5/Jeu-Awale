@@ -33,6 +33,8 @@ typedef struct sockaddr SOCKADDR;
 typedef struct in_addr IN_ADDR;
 #endif
 
+#include <sys/types.h>   // For pid_t
+
 #define CRLF "\r\n"
 #define PORT 1977
 #define MAX_CLIENTS 100
@@ -49,6 +51,13 @@ typedef struct {
     int current_player;
 } Game;
 
+// Define the GameProcess structure
+typedef struct {
+    pid_t pid;           // Process ID of the game (child process)
+    Client *player1;     // Pointer to player 1
+    Client *player2;     // Pointer to player 2
+} GameProcess;
+
 // Function declarations
 static void init(void);
 static void end(void);
@@ -58,7 +67,7 @@ static void end_connection(int sock);
 static int read_client(SOCKET sock, char *buffer);
 static void write_client(SOCKET sock, const char *buffer);
 static void send_message_to_all_clients(Client *clients,int actual, const char *buffer, char from_server);
-static void remove_client(Client *clients, int to_remove, int *actual);
+void remove_client(Client *clients, int to_remove, int *actual, GameProcess *game_processes, int *game_count);
 static void clear_clients(Client *clients, int actual);
 void handle_challenge(const char *target_name, Client *challenger, Client *clients, int actual);
 void handle_challenge_response(Client *clients, int actual, int i, const char *buffer);
@@ -67,5 +76,7 @@ void handle_move(Game *game, Client *player, int case_selectionnee);
 static void send_online_clients_list(Client *clients, int actual, SOCKET sock);
 const char* get_status_string(ClientStatus status);
 void get_board_state(const PlateauAwale *plateau, char *buffer, size_t buffer_size);// Declare the get_board_state function
+
+void remove_client(Client *clients, int to_remove, int *actual, GameProcess *game_processes, int *game_count);
 
 #endif /* SERVER2_H */
