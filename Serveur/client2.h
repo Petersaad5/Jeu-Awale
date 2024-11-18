@@ -14,14 +14,14 @@ typedef enum {
 
 // Define the Client structure
 typedef struct Client {
-    SOCKET sock;                 // Client's socket
-    char name[BUF_SIZE];         // Client's name
-    ClientStatus status;         // Client's status (AVAILABLE, IN_GAME, etc.)
-    int is_active;               // 1 if active, 0 if not
+    SOCKET sock;                  // Client's socket
+    char name[BUF_SIZE];          // Client's name
+    ClientStatus status;          // Client's status (AVAILABLE, IN_GAME, etc.)
+    int is_active;                // 1 if active, 0 if not
 
-    // Existing fields for challenge system
-    int is_challenged;           // 0: no challenge, 1: being challenged
-    char challenger[BUF_SIZE];   // Name of the player who challenged the client
+    // New fields for challenge system
+    int is_challenged;            // 0: no challenge, 1: being challenged
+    char challenger[BUF_SIZE];    // Name of the player who challenged the client
 } Client;
 
 #endif // CLIENT2_H

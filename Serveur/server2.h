@@ -67,16 +67,18 @@ static void end_connection(int sock);
 static int read_client(SOCKET sock, char *buffer);
 static void write_client(SOCKET sock, const char *buffer);
 static void send_message_to_all_clients(Client *clients,int actual, const char *buffer, char from_server);
-void remove_client(Client *clients, int to_remove, int *actual, GameProcess *game_processes, int *game_count);
 static void clear_clients(Client *clients, int actual);
 void handle_challenge(const char *target_name, Client *challenger, Client *clients, int actual);
-void handle_challenge_response(Client *clients, int actual, int i, const char *buffer);
+void handle_challenge_response(Client *clients, int actual, int i, const char *buffer, GameProcess *game_processes, int *game_count);
 void start_game(Client *player1, Client *player2);
 void handle_move(Game *game, Client *player, int case_selectionnee);
 static void send_online_clients_list(Client *clients, int actual, SOCKET sock);
 const char* get_status_string(ClientStatus status);
 void get_board_state(const PlateauAwale *plateau, char *buffer, size_t buffer_size);// Declare the get_board_state function
 
+void start_game(Client *player1, Client *player2);
 void remove_client(Client *clients, int to_remove, int *actual, GameProcess *game_processes, int *game_count);
+void write_client(SOCKET sock, const char *buffer);
+int read_client(SOCKET sock, char *buffer);
 
 #endif /* SERVER2_H */
