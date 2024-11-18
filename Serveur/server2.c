@@ -79,6 +79,14 @@ void remove_client(Client *clients, int to_remove, int *actual, GameProcess *gam
     // Close the client's socket
     close(clients[to_remove].sock);
 
+    // Free the friends list
+    for (int i = 0; i < clients[to_remove].friend_count; i++) {
+        if (clients[to_remove].friends[i] != NULL) {
+            free(clients[to_remove].friends[i]);
+        }
+    }
+    free(clients[to_remove].friends);
+
     // Mark the client as inactive and update status
     clients[to_remove].is_active = 0;
     clients[to_remove].status = AVAILABLE;
@@ -263,6 +271,121 @@ void handle_challenge_response(Client *clients, int actual, int i, const char *b
         write_client(clients[i].sock, "Invalid response. Type 'ACCEPT' or 'DENY'.\n");
     }
 }
+void handle_friend_request(char *buffer, Client *clients, int sender_index, int actual) {
+    char *target_name = buffer + strlen("FRIEND_REQUEST ");
+    // Trim leading and trailing whitespace
+    while (*target_name == ' ') target_name++;
+    char *end = target_name + strlen(target_name) - 1;
+    while (end > target_name && *end == ' ') end--;
+    *(end + 1) = '\0';
+
+    // Find the target client
+    int target_index = -1;
+    for (int i = 0; i < actual; i++) {
+        if (clients[i].is_active && strcmp(clients[i].name, target_name) == 0) {
+            target_index = i;
+            break;
+        }
+    }
+
+    if (target_index == -1) {
+        write_client(clients[sender_index].sock, "User not found.\n");
+        return;
+    }
+
+    Client *sender = &clients[sender_index];
+    Client *target = &clients[target_index];
+
+    // Check if already friends
+    for (int i = 0; i < sender->friend_count; i++) {
+        if (strcmp(sender->friends[i], target->name) == 0) {
+            write_client(sender->sock, "You are already friends with this user.\n");
+            return;
+        }
+    }
+
+    // Check if target is already being requested
+    if (target->is_friend_requested && strcmp(target->friend_requester, sender->name) == 0) {
+        write_client(sender->sock, "You have already sent a friend request to this user.\n");
+        return;
+    }
+
+    // Send friend request
+    target->is_friend_requested = 1;
+    strncpy(target->friend_requester, sender->name, BUF_SIZE - 1);
+    target->friend_requester[BUF_SIZE - 1] = '\0';
+
+    // Notify the target client
+    char message[BUF_SIZE];
+    snprintf(message, BUF_SIZE, "%s has sent you a friend request.\nType 'ACCEPT_FRIEND' to accept or 'REJECT_FRIEND' to reject.\n", sender->name);
+    write_client(target->sock, message);
+
+    // Notify the sender
+    write_client(sender->sock, "Friend request sent.\n");
+}
+void handle_friend_response(Client *clients, int responder_index, int actual, int accept) {
+    Client *responder = &clients[responder_index];
+
+    if (!responder->is_friend_requested) {
+        write_client(responder->sock, "You have no pending friend requests.\n");
+        return;
+    }
+
+    // Find the requester
+    int requester_index = -1;
+    for (int i = 0; i < actual; i++) {
+        if (clients[i].is_active && strcmp(clients[i].name, responder->friend_requester) == 0) {
+            requester_index = i;
+            break;
+        }
+    }
+
+    if (requester_index == -1) {
+        // Requester is no longer online
+        responder->is_friend_requested = 0;
+        memset(responder->friend_requester, 0, BUF_SIZE);
+        write_client(responder->sock, "Friend requester is no longer online.\n");
+        return;
+    }
+
+    Client *requester = &clients[requester_index];
+
+    if (accept) {
+        // Add each other as friends
+        if (responder->friend_count < MAX_FRIENDS && requester->friend_count < MAX_FRIENDS) {
+            // Add to responder's friends
+            responder->friends[responder->friend_count] = malloc(BUF_SIZE * sizeof(char));
+            if (responder->friends[responder->friend_count] != NULL) {
+                strncpy(responder->friends[responder->friend_count], requester->name, BUF_SIZE - 1);
+                responder->friends[responder->friend_count][BUF_SIZE - 1] = '\0';
+                responder->friend_count++;
+            }
+
+            // Add to requester's friends
+            requester->friends[requester->friend_count] = malloc(BUF_SIZE * sizeof(char));
+            if (requester->friends[requester->friend_count] != NULL) {
+                strncpy(requester->friends[requester->friend_count], responder->name, BUF_SIZE - 1);
+                requester->friends[requester->friend_count][BUF_SIZE - 1] = '\0';
+                requester->friend_count++;
+            }
+
+            // Notify both clients
+            write_client(responder->sock, "Friend request accepted. You are now friends.\n");
+            write_client(requester->sock, "Your friend request has been accepted.\n");
+        } else {
+            write_client(responder->sock, "Friend list is full. Cannot add new friend.\n");
+            write_client(requester->sock, "Friend request accepted but friend list is full.\n");
+        }
+    } else {
+        // Reject the friend request
+        write_client(responder->sock, "Friend request rejected.\n");
+        write_client(requester->sock, "Your friend request has been rejected.\n");
+    }
+
+    // Clear the pending friend request
+    responder->is_friend_requested = 0;
+    memset(responder->friend_requester, 0, BUF_SIZE);
+}
 
 void send_online_clients_list(Client *clients, int actual, SOCKET sock) {
     char list[BUF_SIZE] = "Online users:\n";
@@ -385,13 +508,38 @@ static void app(void) {
             c.is_active = 1;
             c.is_challenged = 0;
             memset(c.challenger, 0, BUF_SIZE);
+            // Initialize friend system fields
+                c.is_friend_requested = 0;
+                memset(c.friend_requester, 0, BUF_SIZE);
+                c.friend_count = 0;
+
+                // Allocate memory for the friends array
+                c.friends = malloc(MAX_FRIENDS * sizeof(char *));
+                if (c.friends == NULL) {
+                    perror("malloc");
+                    // Handle allocation failure
+                }
+
+                // Initialize friend pointers to NULL
+                for (int i = 0; i < MAX_FRIENDS; i++) {
+                    c.friends[i] = NULL;
+                }
 
             clients[actual] = c;
             actual++;
 
             char welcome_message[BUF_SIZE];
-            snprintf(welcome_message, BUF_SIZE, "Welcome %s! Type 'LIST' for online users or 'CHALLENGE:<name>' to challenge someone.\n", c.name);
-            write_client(csock, welcome_message);
+                snprintf(welcome_message, BUF_SIZE, 
+                    "Welcome %s!\n"
+                    "Available commands:\n"
+                    " - 'LIST' to see online users\n"
+                    " - 'CHALLENGE:<name>' to challenge someone\n"
+                    " - 'FRIEND_REQUEST <name>' to send a friend request\n"
+                    " - 'ACCEPT_FRIEND' to accept a friend request\n"
+                    " - 'REJECT_FRIEND' to reject a friend request\n"
+                    " - 'LIST_FRIENDS' to list your friends\n"
+                    " - 'FORFEIT' to forfeit a game\n", c.name);
+                write_client(csock, welcome_message);
         } else {
             for (i = 0; i < actual; i++) {
                 if (FD_ISSET(clients[i].sock, &rdfs)) {
@@ -400,7 +548,7 @@ static void app(void) {
                         // Client disconnected
                         remove_client(clients, i, &actual, game_processes, &game_count);
                         continue;
-                    }
+                    }   
 
                     // Handle client input
                     if (strncmp(buffer, "CHALLENGE:", 10) == 0) {
@@ -433,7 +581,28 @@ static void app(void) {
                                 break;
                             }
                         }
-                    } else {
+                    } else if (strncmp(buffer, "FRIEND_REQUEST ", 15) == 0) {
+                        handle_friend_request(buffer, clients, i, actual);
+                    } else if (strcmp(buffer, "ACCEPT_FRIEND") == 0) {
+                        handle_friend_response(clients, i, actual, 1);
+                    } else if (strcmp(buffer, "REJECT_FRIEND") == 0) {
+                        handle_friend_response(clients, i, actual, 0);
+                    } else if (strcmp(buffer, "LIST_FRIENDS") == 0) {
+                        Client *client = &clients[i];
+                        char message[BUF_SIZE];
+                        if (client->friend_count == 0) {
+                            snprintf(message, BUF_SIZE, "You have no friends added.\n");
+                        } else {
+                            snprintf(message, BUF_SIZE, "Your friends:\n");
+                            for (int j = 0; j < client->friend_count; j++) {
+                                if (client->friends[j] != NULL) {
+                                    strncat(message, client->friends[j], BUF_SIZE - strlen(message) - 1);
+                                    strncat(message, "\n", BUF_SIZE - strlen(message) - 1);
+                                }
+                            }
+                        }
+                        write_client(client->sock, message); 
+                    }else {
                         write_client(clients[i].sock, "Unknown command.\n");
                     }
                 }
@@ -443,6 +612,13 @@ static void app(void) {
 
     for (int i = 0; i < actual; i++) {
         close(clients[i].sock);
+        // Free the friends list
+    for (int j = 0; j < clients[i].friend_count; j++) {
+        if (clients[i].friends[j] != NULL) {
+            free(clients[i].friends[j]);
+        }
+    }
+    free(clients[i].friends);
     }
     end_connection(sock);
 }

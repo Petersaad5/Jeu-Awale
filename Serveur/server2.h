@@ -80,7 +80,6 @@ void start_game(Client *player1, Client *player2);
 void remove_client(Client *clients, int to_remove, int *actual, GameProcess *game_processes, int *game_count);
 void write_client(SOCKET sock, const char *buffer);
 int read_client(SOCKET sock, char *buffer);
-void handle_friend_request(const char *target_name, Client *requester, Client *clients, int actual);
-void handle_friend_response(Client *client, Client *clients, int actual, int accept);
-
+void handle_friend_response(Client *clients, int responder_index, int actual, int accept) ;
+void handle_friend_request(char *buffer, Client *clients, int sender_index, int actual) ;
 #endif /* SERVER2_H */
