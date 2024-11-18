@@ -2,6 +2,7 @@
 #define CLIENT2_H
 
 #define BUF_SIZE 1024
+#define MAX_FRIENDS 100
 
 // Define the possible client statuses
 typedef enum {
@@ -18,6 +19,12 @@ typedef struct Client {
     char name[BUF_SIZE];          // Client's name
     ClientStatus status;          // Client's status (AVAILABLE, IN_GAME, etc.)
     int is_active;                // 1 if active, 0 if not
+
+ // Friend system fields
+    int is_friend_requested;
+    char friend_requester[BUF_SIZE];
+    char **friends;       // Pointer to array of friend names
+    int friend_count;
 
     // New fields for challenge system
     int is_challenged;            // 0: no challenge, 1: being challenged
