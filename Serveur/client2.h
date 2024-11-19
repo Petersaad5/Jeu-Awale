@@ -6,6 +6,9 @@
 #define MAX_BIO_LINES 10
 #define MAX_LINE_LENGTH 256
 
+
+#include "server2.h"
+
 // Define the possible client statuses
 typedef enum {
     AVAILABLE,   // Client is available for a game
@@ -25,6 +28,10 @@ typedef struct Client {
      // Bio field
     char bio[MAX_BIO_LINES][MAX_LINE_LENGTH];
     int bio_line_count;
+
+    // Spectating fields
+    int is_spectating; // 0: not spectating, 1: spectating
+    int spectate_mode; // 0: open to all, 1: friends only
 
     // Friend system fields
     int is_friend_requested;

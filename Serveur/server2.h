@@ -39,6 +39,8 @@ typedef struct in_addr IN_ADDR;
 #define PORT 1977
 #define MAX_CLIENTS 100
 #define BUF_SIZE 1024
+#define MAX_GAMES 100            // Maximum number of concurrent games
+#define MAX_SPECTATORS 10        // Maximum number of spectators per game
 
 #include "client2.h"
 #include "awale.h"
@@ -53,9 +55,16 @@ typedef struct {
 
 // Define the GameProcess structure
 typedef struct {
-    pid_t pid;           // Process ID of the game (child process)
-    Client *player1;     // Pointer to player 1
-    Client *player2;     // Pointer to player 2
+    pid_t pid;                        // Process ID of the game (if using processes)
+    Client *player1;
+    Client *player2;
+    int current_player;
+    PlateauAwale plateau;
+
+    // Spectator fields
+    Client *spectators[MAX_SPECTATORS];
+    int spectator_count;
+    int friends_only;                 // 0: open to all, 1: friends only
 } GameProcess;
 
 // Function declarations
@@ -84,4 +93,5 @@ void handle_friend_response(Client *clients, int responder_index, int actual, in
 void handle_friend_request(char *buffer, Client *clients, int sender_index, int actual) ;
 void handle_set_bio(Client *client);
 void handle_view_bio(Client *clients, int actual, int requestor_index, const char *target_name);
+
 #endif /* SERVER2_H */

@@ -461,6 +461,27 @@ void handle_view_bio(Client *clients, int actual, int requestor_index, const cha
         write_client(clients[requestor_index].sock, "User not found.\n");
     }
 }
+void send_ongoing_games_list(GameProcess *game_processes, int game_count, int client_sock) {
+    char game_list[BUF_SIZE];
+    strcpy(game_list, "Ongoing games:\n");
+    int games_found = 0;
+
+    for (int g = 0; g < game_count; g++) {
+        if (game_processes[g].player1 != NULL && game_processes[g].player2 != NULL) {
+            char game_info[128];
+            snprintf(game_info, sizeof(game_info), "Game %d: %s vs %s\n",
+                     g + 1, game_processes[g].player1->name, game_processes[g].player2->name);
+            strcat(game_list, game_info);
+            games_found = 1;
+        }
+    }
+
+    if (!games_found) {
+        strcat(game_list, "No ongoing games.\n");
+    }
+
+    write_client(client_sock, game_list);
+}
 
 static void app(void) {
     SOCKET sock = init_connection();
@@ -585,19 +606,23 @@ static void app(void) {
             char welcome_message[BUF_SIZE];
                 snprintf(welcome_message, BUF_SIZE, 
                     "Welcome %s!\n"
-                    "Available commands:\n"
-                    " - 'LIST' to see online users\n"
-                    " - 'CHALLENGE:<name>' to challenge someone\n"
-                    " - 'FRIEND_REQUEST <name>' to send a friend request\n"
-                    " - 'ACCEPT_FRIEND' to accept a friend request\n"
-                    " - 'REJECT_FRIEND' to reject a friend request\n"
-                    " - 'LIST_FRIENDS' to list your friends\n"
-                    " - 'FORFEIT' to forfeit a game\n"
-                    " - 'CHAT_ALL <message>' to send a message to all users\n"
-                    " - 'CHAT <name> <message>' to send a private message\n"
-                    " - 'SET_BIO' to set your bio (up to 10 lines)\n"
-                    " - 'VIEW_BIO <name>' to view a user's bio\n", c.name);
-                write_client(csock, welcome_message);
+    "Available commands:\n"
+    " - 'LIST' to see online users\n"
+    " - 'CHALLENGE:<name>' to challenge someone\n"
+    " - 'FRIEND_REQUEST <name>' to send a friend request\n"
+    " - 'ACCEPT_FRIEND' to accept a friend request\n"
+    " - 'REJECT_FRIEND' to reject a friend request\n"
+    " - 'LIST_FRIENDS' to list your friends\n"
+    " - 'FORFEIT' to forfeit a game\n"
+    " - 'CHAT_ALL <message>' to send a message to all users\n"
+    " - 'CHAT <name> <message>' to send a private message\n"
+    " - 'SET_BIO' to set your bio (up to 10 lines)\n"
+    " - 'VIEW_BIO <name>' to view a user's bio\n"
+    " - 'SET_SPECTATE_MODE <ALL/FRIENDS>' to set spectate mode\n"
+    " - 'LIST_GAMES' to list ongoing games\n"
+    " - 'SPECTATE <player_name>' to spectate a game\n"
+    " - 'EXIT_SPECTATE' to exit spectating mode\n",c.name);
+            write_client(csock, welcome_message);
         } else {
             for (i = 0; i < actual; i++) {
                 if (FD_ISSET(clients[i].sock, &rdfs)) {
@@ -652,7 +677,10 @@ static void app(void) {
                         handle_view_bio(clients, actual, i, target_name);
                         
 
-                    }else if (strncmp(buffer, "FRIEND_REQUEST ", 15) == 0) {
+                    }else if (strcmp(buffer, "LIST_GAMES") == 0) {
+                        send_ongoing_games_list(game_processes, game_count, clients[i].sock);
+                    }
+                    else if (strncmp(buffer, "FRIEND_REQUEST ", 15) == 0) {
                         handle_friend_request(buffer, clients, i, actual);
                     } else if (strcmp(buffer, "ACCEPT_FRIEND") == 0) {
                         handle_friend_response(clients, i, actual, 1);
