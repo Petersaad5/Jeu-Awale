@@ -3,6 +3,8 @@
 
 #define BUF_SIZE 1024
 #define MAX_FRIENDS 100
+#define MAX_BIO_LINES 10
+#define MAX_LINE_LENGTH 256
 
 // Define the possible client statuses
 typedef enum {
@@ -20,7 +22,11 @@ typedef struct Client {
     ClientStatus status;          // Client's status (AVAILABLE, IN_GAME, etc.)
     int is_active;                // 1 if active, 0 if not
 
- // Friend system fields
+     // Bio field
+    char bio[MAX_BIO_LINES][MAX_LINE_LENGTH];
+    int bio_line_count;
+
+    // Friend system fields
     int is_friend_requested;
     char friend_requester[BUF_SIZE];
     char **friends;       // Pointer to array of friend names

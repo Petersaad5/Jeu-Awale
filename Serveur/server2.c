@@ -413,6 +413,54 @@ void send_online_clients_list(Client *clients, int actual, SOCKET sock) {
     }
     write_client(sock, list);
 }
+void handle_set_bio(Client *client) {
+    char buffer[BUF_SIZE];
+    int lines = 0;
+    client->bio_line_count = 0;
+
+    write_client(client->sock, "Enter your bio (up to 10 lines). Type 'END_BIO' on a new line to finish.\n");
+
+    while (lines < MAX_BIO_LINES) {
+        int n = read_client(client->sock, buffer);
+        if (n <= 0) {
+            // Handle client disconnection if necessary
+            break;
+        }
+        buffer[strcspn(buffer, "\r\n")] = '\0'; // Remove newline characters
+
+        if (strcmp(buffer, "END_BIO") == 0) {
+            break;
+        }
+        strncpy(client->bio[lines], buffer, MAX_LINE_LENGTH - 1);
+        client->bio[lines][MAX_LINE_LENGTH - 1] = '\0'; // Ensure null termination
+        lines++;
+    }
+    client->bio_line_count = lines;
+    write_client(client->sock, "Your bio has been updated.\n");
+}
+void handle_view_bio(Client *clients, int actual, int requestor_index, const char *target_name) {
+    int found = 0;
+    for (int j = 0; j < actual; j++) {
+        if (clients[j].is_active && strcmp(clients[j].name, target_name) == 0) {
+            found = 1;
+            write_client(clients[requestor_index].sock, "Bio of ");
+            write_client(clients[requestor_index].sock, clients[j].name);
+            write_client(clients[requestor_index].sock, ":\n");
+            if (clients[j].bio_line_count == 0) {
+                write_client(clients[requestor_index].sock, "This user has not set a bio.\n");
+            } else {
+                for (int k = 0; k < clients[j].bio_line_count; k++) {
+                    write_client(clients[requestor_index].sock, clients[j].bio[k]);
+                    write_client(clients[requestor_index].sock, "\n");
+                }
+            }
+            break;
+        }
+    }
+    if (!found) {
+        write_client(clients[requestor_index].sock, "User not found.\n");
+    }
+}
 
 static void app(void) {
     SOCKET sock = init_connection();
@@ -524,6 +572,12 @@ static void app(void) {
                 for (int i = 0; i < MAX_FRIENDS; i++) {
                     c.friends[i] = NULL;
                 }
+                
+                // Initialize bio fields
+                c.bio_line_count = 0;
+                for (int i = 0; i < MAX_BIO_LINES; i++) {
+                    memset(c.bio[i], 0, MAX_LINE_LENGTH);
+                }
 
             clients[actual] = c;
             actual++;
@@ -540,7 +594,9 @@ static void app(void) {
                     " - 'LIST_FRIENDS' to list your friends\n"
                     " - 'FORFEIT' to forfeit a game\n"
                     " - 'CHAT_ALL <message>' to send a message to all users\n"
-                    " - 'CHAT <name> <message>' to send a private message\n", c.name);
+                    " - 'CHAT <name> <message>' to send a private message\n"
+                    " - 'SET_BIO' to set your bio (up to 10 lines)\n"
+                    " - 'VIEW_BIO <name>' to view a user's bio\n", c.name);
                 write_client(csock, welcome_message);
         } else {
             for (i = 0; i < actual; i++) {
@@ -566,17 +622,57 @@ static void app(void) {
                         clients[i].is_challenged = 0;
                         memset(clients[i].challenger, 0, BUF_SIZE);
                     } else if (strncmp(buffer, "FORFEIT", 7) == 0) {
-                        // Existing forfeit handling code
-                        // ...
-                    } else if (strncmp(buffer, "FRIEND_REQUEST ", 15) == 0) {
+                        // Handle forfeit
+                        for (int g = 0; g < game_count; g++) {
+                            if (game_processes[g].player1 == &clients[i] || game_processes[g].player2 == &clients[i]) {
+                                Client *other_player = (game_processes[g].player1 == &clients[i]) ? game_processes[g].player2 : game_processes[g].player1;
+                                write_client(clients[i].sock, "You have forfeited the game.\n");
+                                write_client(other_player->sock, "Your opponent has forfeited the game. You win!\n");
+
+                                // Update statuses
+                                clients[i].status = AVAILABLE;
+                                other_player->status = AVAILABLE;
+
+                                // Remove the game process
+                                game_processes[g] = game_processes[game_count - 1];
+                                game_count--;
+                                break;
+                            }
+                        }
+                            
+                    }else if (strcmp(buffer, "SET_BIO") == 0) {
+                        handle_set_bio(&clients[i]);
+                    } else if (strncmp(buffer, "VIEW_BIO ", 9) == 0) {
+                        char *target_name = buffer + 9;
+                        // Trim leading and trailing whitespace
+                        while (*target_name == ' ') target_name++;
+                        char *end = target_name + strlen(target_name) - 1;
+                        while (end > target_name && isspace((unsigned char)*end)) end--;
+                        *(end + 1) = '\0';
+                        handle_view_bio(clients, actual, i, target_name);
+                        
+
+                    }else if (strncmp(buffer, "FRIEND_REQUEST ", 15) == 0) {
                         handle_friend_request(buffer, clients, i, actual);
                     } else if (strcmp(buffer, "ACCEPT_FRIEND") == 0) {
                         handle_friend_response(clients, i, actual, 1);
                     } else if (strcmp(buffer, "REJECT_FRIEND") == 0) {
                         handle_friend_response(clients, i, actual, 0);
                     } else if (strcmp(buffer, "LIST_FRIENDS") == 0) {
-                        // Existing list friends code
-                        // ...
+                        Client *client = &clients[i];
+                        char message[BUF_SIZE];
+                        if (client->friend_count == 0) {
+                            snprintf(message, BUF_SIZE, "You have no friends added.\n");
+                        } else {
+                            snprintf(message, BUF_SIZE, "Your friends:\n");
+                            for (int j = 0; j < client->friend_count; j++) {
+                                if (client->friends[j] != NULL) {
+                                    strncat(message, client->friends[j], BUF_SIZE - strlen(message) - 1);
+                                    strncat(message, "\n", BUF_SIZE - strlen(message) - 1);
+                                }
+                            }
+                        }
+                        write_client(client->sock, message); 
                     } else if (strncmp(buffer, "CHAT_ALL ", 9) == 0) {
                         // **Implementing 'CHAT_ALL' Command**
                         char *message = buffer + 9; // Extract the message

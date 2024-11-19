@@ -82,4 +82,6 @@ void write_client(SOCKET sock, const char *buffer);
 int read_client(SOCKET sock, char *buffer);
 void handle_friend_response(Client *clients, int responder_index, int actual, int accept) ;
 void handle_friend_request(char *buffer, Client *clients, int sender_index, int actual) ;
+void handle_set_bio(Client *client);
+void handle_view_bio(Client *clients, int actual, int requestor_index, const char *target_name);
 #endif /* SERVER2_H */
