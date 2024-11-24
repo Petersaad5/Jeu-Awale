@@ -871,6 +871,13 @@ static void app(void) {
                                 Client *other_player = (game_processes[g].player1 == &clients[i]) ? game_processes[g].player2 : game_processes[g].player1;
                                 write_client(clients[i].sock, "You have forfeited the game.\n");
                                 write_client(other_player->sock, "Your opponent has forfeited the game. You win!\n");
+                                // Update Elo ratings
+                                update_elo_ratings(other_player, &clients[i]);
+                                // Notify players of the new ratings
+                                snprintf(buffer, sizeof(buffer), "Game over. Your new Elo rating is %d.\n", other_player->elo_rating);  
+                                write_client(other_player->sock, buffer);
+                                snprintf(buffer, sizeof(buffer), "Game over. Your new Elo rating is %d.\n", clients[i].elo_rating);
+                                write_client(clients[i].sock, buffer);
 
                                 // Update statuses
                                 clients[i].status = AVAILABLE;
