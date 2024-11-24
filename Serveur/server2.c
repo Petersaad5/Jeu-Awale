@@ -13,13 +13,15 @@
 #include "awale.h"
 
 #define MAX_CLIENTS 100
-
+// Declare the array of game processes
+//GameProcess *game_processes[MAX_GAMES];
+//int game_count = 0;
 static void init(void) {
-    // Initialization code (if needed)
+    
 }
 
 static void end(void) {
-    // Cleanup code (if needed)
+ 
 }
 
 static int init_connection(void) {
@@ -113,20 +115,30 @@ void remove_client(Client *clients, int to_remove, int *actual, GameProcess *gam
     // No need to shift clients array since we're marking client as inactive
 }
 
-void start_game(Client *player1, Client *player2) {
+void start_game(Client *player1, Client *player2,GameProcess *game) {
     PlateauAwale plateau;
     initialiser_plateau(&plateau);
+    
 
     Client *current_player = player1;
     Client *other_player = player2;
     char buffer[BUF_SIZE];
 
     while (1) {
+        
+
         // Send the board state to both players
         char board_state[BUF_SIZE];
         get_board_state(&plateau, board_state, BUF_SIZE);
         write_client(current_player->sock, board_state);
         write_client(other_player->sock, board_state);
+
+        // Notify spectators
+        
+        for (int s = 0; s < game->spectator_count; s++) {
+            
+            write_client(game->spectators[s]->sock, board_state);
+        }   
 
         // Prompt current player for move
         write_client(current_player->sock, "Your move (or type 'FORFEIT' to forfeit): ");
@@ -218,11 +230,13 @@ void handle_challenge_response(Client *clients, int actual, int i, const char *b
                 write_client(clients[i].sock, "Challenge accepted.\n");
                 write_client(clients[j].sock, "Challenge accepted.\n");
 
+                
                 // Fork a new process for the game
                 pid_t pid = fork();
                 if (pid == 0) {
                     // Child process
-                    start_game(&clients[j], &clients[i]);
+                    
+                    start_game(&clients[j], &clients[i],&game_processes[*game_count]);
                     exit(0);
                 } else if (pid > 0) {
                     // Parent process
@@ -230,10 +244,20 @@ void handle_challenge_response(Client *clients, int actual, int i, const char *b
                     clients[j].status = IN_GAME;
                     clients[i].status = IN_GAME;
 
+                    
+
                     // Store the game process info
                     game_processes[*game_count].pid = pid;
                     game_processes[*game_count].player1 = &clients[j];
                     game_processes[*game_count].player2 = &clients[i];
+
+                    //Set game spectate mode
+                    if (clients[j].spectate_mode == 1 || clients[i].spectate_mode == 1) {
+                        game_processes[*game_count].friends_only = 1;
+                    } else {
+                        game_processes[*game_count].friends_only = 0;
+                    }
+
                     (*game_count)++;
                 } else {
                     perror("fork()");
@@ -404,6 +428,9 @@ void send_online_clients_list(Client *clients, int actual, SOCKET sock) {
             case CHALLENGED:
                 strcpy(status, "CHALLENGED");
                 break;
+            case SPECTATING:
+                strcpy(status, "SPECTATING");
+                break;
             default:
                 strcpy(status, "BUSY");
                 break;
@@ -483,11 +510,80 @@ void send_ongoing_games_list(GameProcess *game_processes, int game_count, int cl
     write_client(client_sock, game_list);
 }
 
+void handle_spectate_request(Client *clients, int client_count, Client *spectator, char *target_name,GameProcess *game_processes, int game_count) {
+    // Find the game where target_name is participating
+    GameProcess *target_game = NULL;
+    int games_found = 0;
+    for (int g = 0; g < game_count; g++) {
+        GameProcess *game = &game_processes[g];
+        if ((game->player1 && strcmp(game->player1->name, target_name) == 0) ||
+            (game->player2 && strcmp(game->player2->name, target_name) == 0)) {
+            target_game = game;
+            break;
+        }
+    }
+
+    if (!target_game) {
+        write_client(spectator->sock, "Game not found.\n");
+        return;
+    }
+
+    // Check spectate permissions
+    if (target_game->friends_only) {
+        int is_friend = 0;
+        // Check if spectator is a friend of either player
+        for (int f = 0; f < target_game->player1->friend_count; f++) {
+            if (strcmp(target_game->player1->friends[f], spectator->name) == 0) {
+                is_friend = 1;
+                break;
+            }
+        }
+        if (!is_friend) {
+            for (int f = 0; f < target_game->player2->friend_count; f++) {
+                if (strcmp(target_game->player2->friends[f], spectator->name) == 0) {
+                    is_friend = 1;
+                    break;
+                }
+            }
+        }
+        if (!is_friend) {
+            write_client(spectator->sock, "Spectating is restricted to friends.\n");
+            return;
+        }
+    }
+
+    // Add spectator to the game
+    if (target_game->spectator_count >= MAX_SPECTATORS) {
+        write_client(spectator->sock, "Maximum number of spectators reached.\n");
+        return;
+    }
+
+    target_game->spectators[target_game->spectator_count++] = spectator;
+    spectator->is_spectating = 1;
+    spectator->spectating_game = target_game;
+    spectator->status = SPECTATING;
+
+    // Send the current game state
+    char board_state[BUF_SIZE];
+    get_board_state(&target_game->plateau, board_state, sizeof(board_state));
+    write_client(spectator->sock, "You are now spectating the game.\n");
+    write_client(spectator->sock, board_state);
+}
+int is_friend(Client *client, Client *other) {
+    for (int f = 0; f < client->friend_count; f++) {
+        if (strcmp(client->friends[f], other->name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void app(void) {
     SOCKET sock = init_connection();
     char buffer[BUF_SIZE];
     int actual = 0;
     Client clients[MAX_CLIENTS];
+    
     GameProcess game_processes[MAX_CLIENTS / 2];
     int game_count = 0;
 
@@ -576,6 +672,7 @@ static void app(void) {
             c.status = AVAILABLE;
             c.is_active = 1;
             c.is_challenged = 0;
+            c.spectate_mode = 0;
             memset(c.challenger, 0, BUF_SIZE);
             // Initialize friend system fields
                 c.is_friend_requested = 0;
@@ -701,7 +798,24 @@ static void app(void) {
                             }
                         }
                         write_client(client->sock, message); 
-                    } else if (strncmp(buffer, "CHAT_ALL ", 9) == 0) {
+                        }else if (strncmp(buffer, "SPECTATE ", 9) == 0) {
+                            char *target_name = buffer + 9;
+                            while (*target_name == ' ') target_name++;
+                            handle_spectate_request(clients, actual, &clients[i], target_name,game_processes, game_count);
+                        } else if (strncmp(buffer, "SET_SPECTATE_MODE ", 18) == 0) {
+                            char *mode_str = buffer + 18;
+                            while (*mode_str == ' ') mode_str++;
+                            if (strcmp(mode_str, "ALL") == 0) {
+                                clients[i].spectate_mode = 0;  // Allow all to spectate
+                                write_client(clients[i].sock, "Spectate mode set to ALL.\n");
+                            } else if (strcmp(mode_str, "FRIENDS") == 0) {
+                                clients[i].spectate_mode = 1;  // Friends only
+                                write_client(clients[i].sock, "Spectate mode set to FRIENDS.\n");
+                            } else {
+                                write_client(clients[i].sock, "Invalid spectate mode. Use ALL or FRIENDS.\n");
+                            }
+                    } 
+                    else if (strncmp(buffer, "CHAT_ALL ", 9) == 0) {
                         // **Implementing 'CHAT_ALL' Command**
                         char *message = buffer + 9; // Extract the message
                         char full_message[BUF_SIZE];
@@ -754,6 +868,7 @@ static void app(void) {
     }
     end_connection(sock);
 }
+
 
 int main(void) {
     init();

@@ -79,13 +79,13 @@ static void send_message_to_all_clients(Client *clients,int actual, const char *
 static void clear_clients(Client *clients, int actual);
 void handle_challenge(const char *target_name, Client *challenger, Client *clients, int actual);
 void handle_challenge_response(Client *clients, int actual, int i, const char *buffer, GameProcess *game_processes, int *game_count);
-void start_game(Client *player1, Client *player2);
+void start_game(Client *player1, Client *player2, GameProcess *game_process);
 void handle_move(Game *game, Client *player, int case_selectionnee);
 static void send_online_clients_list(Client *clients, int actual, SOCKET sock);
 const char* get_status_string(ClientStatus status);
 void get_board_state(const PlateauAwale *plateau, char *buffer, size_t buffer_size);// Declare the get_board_state function
 
-void start_game(Client *player1, Client *player2);
+
 void remove_client(Client *clients, int to_remove, int *actual, GameProcess *game_processes, int *game_count);
 void write_client(SOCKET sock, const char *buffer);
 int read_client(SOCKET sock, char *buffer);
@@ -93,5 +93,7 @@ void handle_friend_response(Client *clients, int responder_index, int actual, in
 void handle_friend_request(char *buffer, Client *clients, int sender_index, int actual) ;
 void handle_set_bio(Client *client);
 void handle_view_bio(Client *clients, int actual, int requestor_index, const char *target_name);
-
+void send_ongoing_games_list(GameProcess *game_processes, int game_count, int client_sock);
+int is_friend(Client *client, Client *other);
+void handle_spectate_request(Client *clients, int client_count, Client *spectator, char *target_name,GameProcess *game_processes, int game_count);
 #endif /* SERVER2_H */

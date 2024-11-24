@@ -32,6 +32,7 @@ typedef struct Client {
     // Spectating fields
     int is_spectating; // 0: not spectating, 1: spectating
     int spectate_mode; // 0: open to all, 1: friends only
+    struct GameProcess *spectating_game; // Pointer to the game being spectated
 
     // Friend system fields
     int is_friend_requested;
