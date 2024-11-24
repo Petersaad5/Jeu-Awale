@@ -85,7 +85,7 @@ static void send_online_clients_list(Client *clients, int actual, SOCKET sock);
 const char* get_status_string(ClientStatus status);
 void get_board_state(const PlateauAwale *plateau, char *buffer, size_t buffer_size);// Declare the get_board_state function
 void update_elo_ratings(Client *winner, Client *loser);
-
+void handle_view_elo(Client *clients, int client_count, Client *requesting_client, const char *player_name);
 void remove_client(Client *clients, int to_remove, int *actual, GameProcess *game_processes, int *game_count);
 void write_client(SOCKET sock, const char *buffer);
 int read_client(SOCKET sock, char *buffer);
@@ -96,4 +96,6 @@ void handle_view_bio(Client *clients, int actual, int requestor_index, const cha
 void send_ongoing_games_list(GameProcess *game_processes, int game_count, int client_sock);
 int is_friend(Client *client, Client *other);
 void handle_spectate_request(Client *clients, int client_count, Client *spectator, char *target_name,GameProcess *game_processes, int game_count);
+int read_elo_rating(const char *name);
+void write_elo_rating(const char *name, int elo_rating);
 #endif /* SERVER2_H */

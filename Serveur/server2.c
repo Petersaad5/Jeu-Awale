@@ -12,6 +12,7 @@
 #include "server2.h"
 #include "awale.h"
 
+#define ELO_FILE "elo_ratings.txt"
 #define MAX_CLIENTS 100
 // Declare the array of game processes
 //GameProcess *game_processes[MAX_GAMES];
@@ -146,7 +147,12 @@ void start_game(Client *player1, Client *player2,GameProcess *game) {
         // Read move from current player
         if (read_client(current_player->sock, buffer) <= 0) {
             // Handle disconnection
+            update_elo_ratings(other_player, current_player);
             write_client(other_player->sock, "Your opponent has disconnected. You win!\n");
+            snprintf(buffer, sizeof(buffer), "Game over. Your new Elo rating is %d.\n", other_player->elo_rating);
+            write_client(other_player->sock, buffer);
+            snprintf(buffer, sizeof(buffer), "Game over. Your new Elo rating is %d.\n", current_player->elo_rating);
+            write_client(current_player->sock, buffer);
             break;
         }
 
@@ -177,6 +183,11 @@ void start_game(Client *player1, Client *player2,GameProcess *game) {
                      plateau.score_joueur1, plateau.score_joueur2);
             write_client(current_player->sock, end_message);
             write_client(other_player->sock, end_message);
+            update_elo_ratings(other_player, current_player);
+             snprintf(buffer, sizeof(buffer), "Game over. Your new Elo rating is %d.\n", other_player->elo_rating);
+            write_client(other_player->sock, buffer);
+            snprintf(buffer, sizeof(buffer), "Game over. Your new Elo rating is %d.\n", current_player->elo_rating);
+            write_client(current_player->sock, buffer);
             break;
         }
 
@@ -586,13 +597,79 @@ int is_friend(Client *client, Client *other) {
 void update_elo_ratings(Client *winner, Client *loser) {
     int K = 32; // K-factor, determines the sensitivity of rating changes
 
+    // Read current Elo ratings from file
+    int winner_elo = read_elo_rating(winner->name);
+    int loser_elo = read_elo_rating(loser->name);
+
     // Calculate expected scores
-    double expected_winner = 1.0 / (1.0 + pow(10, (loser->elo_rating - winner->elo_rating) / 400.0));
-    double expected_loser = 1.0 / (1.0 + pow(10, (winner->elo_rating - loser->elo_rating) / 400.0));
+    double expected_winner = 1.0 / (1.0 + pow(10, (loser_elo - winner_elo) / 400.0));
+    double expected_loser = 1.0 / (1.0 + pow(10, (winner_elo - loser_elo) / 400.0));
 
     // Update ratings
-    winner->elo_rating += (int)(K * (1 - expected_winner));
-    loser->elo_rating += (int)(K * (0 - expected_loser));
+    winner_elo += (int)(K * (1 - expected_winner));
+    loser_elo += (int)(K * (0 - expected_loser));
+
+    // Write updated Elo ratings to file
+    write_elo_rating(winner->name, winner_elo);
+    write_elo_rating(loser->name, loser_elo);
+
+    // Update client structures
+    winner->elo_rating = winner_elo;
+    loser->elo_rating = loser_elo;
+}
+void handle_view_elo(Client *clients, int client_count, Client *requesting_client, const char *player_name) {
+    // Read Elo rating from file
+    int elo_rating = read_elo_rating(player_name);
+
+    // Send Elo rating to the requesting client
+    char buffer[BUF_SIZE];
+    snprintf(buffer, sizeof(buffer), "Player %s has an Elo rating of %d.\n", player_name, elo_rating);
+    write_client(requesting_client->sock, buffer);
+}
+int read_elo_rating(const char *name) {
+    FILE *file = fopen(ELO_FILE, "r");
+    if (file == NULL) {
+        return 1200; // Default Elo rating if file does not exist
+    }
+    char line[BUF_SIZE];
+    char stored_name[BUF_SIZE];
+    int stored_elo;
+    while (fgets(line, sizeof(line), file)) {
+        sscanf(line, "%s %d", stored_name, &stored_elo);
+        if (strcmp(name, stored_name) == 0) {
+            fclose(file);
+            return stored_elo;
+        }
+    }
+    fclose(file);
+    return 1200; // Default Elo rating if user not found
+}
+
+// Function to write Elo rating to file
+void write_elo_rating(const char *name, int elo_rating) {
+    FILE *file = fopen(ELO_FILE, "r+");
+    if (file == NULL) {
+        file = fopen(ELO_FILE, "w");
+    }
+    char line[BUF_SIZE];
+    char stored_name[BUF_SIZE];
+    int stored_elo;
+    long pos;
+    int found = 0;
+    while (fgets(line, sizeof(line), file)) {
+        pos = ftell(file);
+        sscanf(line, "%s %d", stored_name, &stored_elo);
+        if (strcmp(name, stored_name) == 0) {
+            fseek(file, pos - strlen(line), SEEK_SET);
+            fprintf(file, "%s %d\n", name, elo_rating);
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        fprintf(file, "%s %d\n", name, elo_rating);
+    }
+    fclose(file);
 }
 
 static void app(void) {
@@ -690,7 +767,32 @@ static void app(void) {
             c.is_active = 1;
             c.is_challenged = 0;
             c.spectate_mode = 0;
-            c.elo_rating = 1200;  
+            // Check if the player's name is already in the file and get the Elo rating
+            c.elo_rating = read_elo_rating(c.name);
+
+            // If the player is new, add them to the file with the default Elo rating
+            if (c.elo_rating == 1200) {
+                FILE *file = fopen(ELO_FILE, "r");
+                if (file != NULL) {
+                    char line[BUF_SIZE];
+                    char stored_name[BUF_SIZE];
+                    int stored_elo;
+                    int found = 0;
+                    while (fgets(line, sizeof(line), file)) {
+                        sscanf(line, "%s %d", stored_name, &stored_elo);
+                        if (strcmp(c.name, stored_name) == 0) {
+                            found = 1;
+                            break;
+                        }
+                    }
+                    fclose(file);
+                    if (!found) {
+                        write_elo_rating(c.name, c.elo_rating);
+                    }
+                } else {
+                    write_elo_rating(c.name, c.elo_rating);
+                }
+            } 
             memset(c.challenger, 0, BUF_SIZE);
             // Initialize friend system fields
                 c.is_friend_requested = 0;
@@ -733,6 +835,7 @@ static void app(void) {
     " - 'CHAT <name> <message>' to send a private message\n"
     " - 'SET_BIO' to set your bio (up to 10 lines)\n"
     " - 'VIEW_BIO <name>' to view a user's bio\n"
+    " - 'VIEW_ELO <name>' to view a user's elo \n"
     " - 'SET_SPECTATE_MODE <ALL/FRIENDS>' to set spectate mode\n"
     " - 'LIST_GAMES' to list ongoing games\n"
     " - 'SPECTATE <player_name>' to spectate a game\n"
@@ -797,7 +900,10 @@ static void app(void) {
                     }
                     else if (strncmp(buffer, "FRIEND_REQUEST ", 15) == 0) {
                         handle_friend_request(buffer, clients, i, actual);
-                    } else if (strcmp(buffer, "ACCEPT_FRIEND") == 0) {
+                    }else if (strncmp(buffer, "VIEW_ELO ", 9) == 0) {
+                       handle_view_elo(clients, actual, &clients[i], buffer + 9);
+                    } 
+                    else if (strcmp(buffer, "ACCEPT_FRIEND") == 0) {
                         handle_friend_response(clients, i, actual, 1);
                     } else if (strcmp(buffer, "REJECT_FRIEND") == 0) {
                         handle_friend_response(clients, i, actual, 0);
