@@ -154,8 +154,14 @@ void start_game(Client *player1, Client *player2,GameProcess *game) {
 
         if (strcmp(buffer, "FORFEIT") == 0) {
             // Current player forfeits
+            update_elo_ratings(other_player, current_player);
             write_client(current_player->sock, "You have forfeited the game.\n");
             write_client(other_player->sock, "Your opponent has forfeited. You win!\n");
+            // Notify players of the new ratings
+            snprintf(buffer, sizeof(buffer), "Game over. Your new Elo rating is %d.\n", other_player->elo_rating);
+            write_client(other_player->sock, buffer);
+            snprintf(buffer, sizeof(buffer), "Game over. Your new Elo rating is %d.\n", current_player->elo_rating);
+            write_client(current_player->sock, buffer);
             break;
         }
 
@@ -577,6 +583,17 @@ int is_friend(Client *client, Client *other) {
     }
     return 0;
 }
+void update_elo_ratings(Client *winner, Client *loser) {
+    int K = 32; // K-factor, determines the sensitivity of rating changes
+
+    // Calculate expected scores
+    double expected_winner = 1.0 / (1.0 + pow(10, (loser->elo_rating - winner->elo_rating) / 400.0));
+    double expected_loser = 1.0 / (1.0 + pow(10, (winner->elo_rating - loser->elo_rating) / 400.0));
+
+    // Update ratings
+    winner->elo_rating += (int)(K * (1 - expected_winner));
+    loser->elo_rating += (int)(K * (0 - expected_loser));
+}
 
 static void app(void) {
     SOCKET sock = init_connection();
@@ -673,6 +690,7 @@ static void app(void) {
             c.is_active = 1;
             c.is_challenged = 0;
             c.spectate_mode = 0;
+            c.elo_rating = 1200;  
             memset(c.challenger, 0, BUF_SIZE);
             // Initialize friend system fields
                 c.is_friend_requested = 0;

@@ -84,7 +84,7 @@ void handle_move(Game *game, Client *player, int case_selectionnee);
 static void send_online_clients_list(Client *clients, int actual, SOCKET sock);
 const char* get_status_string(ClientStatus status);
 void get_board_state(const PlateauAwale *plateau, char *buffer, size_t buffer_size);// Declare the get_board_state function
-
+void update_elo_ratings(Client *winner, Client *loser);
 
 void remove_client(Client *clients, int to_remove, int *actual, GameProcess *game_processes, int *game_count);
 void write_client(SOCKET sock, const char *buffer);

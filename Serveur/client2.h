@@ -25,6 +25,9 @@ typedef struct Client {
     ClientStatus status;          // Client's status (AVAILABLE, IN_GAME, etc.)
     int is_active;                // 1 if active, 0 if not
 
+    // Elo rating fields
+    int elo_rating; 
+    
      // Bio field
     char bio[MAX_BIO_LINES][MAX_LINE_LENGTH];
     int bio_line_count;
